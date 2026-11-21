@@ -11,7 +11,8 @@ Run `askflow config` from the working directory.
 
 - **Exit code 3 ("No askflow ledger")**: this project does not use askflow. Stop: follow the project's own
   workflow and do not apply anything below. Offer `askflow init` only if the user asked to set it up.
-- **Otherwise** it prints JSON: `ledger` (the ledger folder), `dayZero`, `boardSnapshot` and `config`.
+- **Otherwise** it prints JSON: `ledger` (the ledger folder), `dayZero`, `boardSnapshot`, `boardFile` and
+  `config`.
   Everything project-specific below comes from `config`. Never assume a value that is not there; an empty
   field means the project has not defined it, so ask the user rather than invent it.
 
@@ -25,7 +26,7 @@ Names used below, all from `config`:
 | the integration branch | `project.integrationBranch` |
 | the local gate | `project.localGate` |
 | done | `done.definition`, verified at `done.url`, touching only `done.testData` |
-| the board | `board.*`, only if `board.enabled` |
+| the board | `board.*`, only if `board.enabled`; `board.mode` says which kind (see "The board") |
 | the spec tool | `spec.*`, only if `spec.enabled` |
 
 ## The ledger
@@ -43,6 +44,24 @@ re-reading documents, code or the live system, and write to it at every gate.
 Event types: `opened` · `linked` (spec, task or PR) · `supersedes` (with `target`) · `obsolete` ·
 `decision` (`text` and `why`) · `partial` (`reason`) · `implemented` (`pr` or `commit`) · `reviewed` ·
 `verified` (`evidence`) · `closed`.
+
+## The board
+
+Only if `board.enabled`. Wherever a gate below says **Board**, how you do it depends on `board.mode`:
+
+- **`mcp`** — the tasks live in a board tool (`board.tool`) and you reach it through the MCP server named
+  in `board.mcp`, with that server's own tools. If `board.mcp` is empty or that server is not connected in
+  this session, stop and tell the user: do not use another board, do not keep the tasks somewhere else
+  "for now", and do not skip the step silently. Follow `board.project`, `board.sprint`, `board.assignee`
+  and `board.titleTag`.
+- **`file`** — the tasks live in the Markdown board at `boardFile`. Write to it with the CLI:
+  `askflow board add "<title>" --item <id>` creates the task, assigns its code and logs the `linked` event
+  in the same step; `askflow board move <code> "<state>"` moves it (states are `board.states`). A task's
+  notes — acceptance criteria, the PR, the evidence, a comment — are indented lines under its line, added
+  by editing the file; they travel with the task. Never renumber or delete a task. Commit the file with
+  the work.
+
+Either way the ledger rules. A task is done on the board only after gate 5.
 
 ## Rules that are never skipped
 
@@ -75,9 +94,9 @@ First search the ledger for the item (by the client's alias, title or surface).
 - A new delivery from the client: launch the `askflow-archivist` agent with the path of the material. It
   returns the proposed items; the main session reviews and logs them.
 
-**Board** (if enabled): create the task only if it does not exist yet, following `board.titleTag`,
-`board.sprint` and `board.assignee`, with the item's acceptance criteria in the description and story
-points if `board.storyPoints`. Log `linked` with the task code. Tasks matching `board.foreign` belong to
+**Board** (if enabled): create the task only if it does not exist yet, with the item's acceptance criteria
+in its description (in a Markdown board, as notes under the task) and story points if `board.storyPoints`.
+Log `linked` with the task code, unless `askflow board add --item` already did. Tasks matching `board.foreign` belong to
 someone else: never touch them. If `board.nameInRepo` is false, the board is never mentioned in the
 repository (code, commits, PRs).
 
@@ -130,9 +149,10 @@ done and the ledger does not, the ledger rules: correct the board comment, witho
 
 ## When updating the board
 
-Refresh the snapshot in the ledger folder (`board-<sprint>-<date>.tsv`, tab-separated: code, state, created,
-closed, type, title, then any extra columns; the one at `board.foreign.column` marks whose task it is) and
-run `askflow reconcile`. `views/RECONCILIATION.md` says what differs each way, which open tasks have no
+With a Markdown board there is nothing to refresh: run `askflow reconcile`, which reads the file. With a
+board tool, first refresh the snapshot in the ledger folder (`board-<sprint>-<date>.tsv`, tab-separated:
+code, state, created, closed, type, title, then any extra columns; the one at `board.foreign.column` marks
+whose task it is), then run `askflow reconcile`. `views/RECONCILIATION.md` says what differs each way, which open tasks have no
 item and which items have no task. Correct the board to say what the ledger says, without reopening
 closed tasks.
 

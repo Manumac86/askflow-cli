@@ -1,10 +1,12 @@
 // Sets a project up: creates the ledger folder where the user chose, never overwriting anything.
 import { existsSync, mkdirSync, writeFileSync, readFileSync, appendFileSync } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { template } from "./config.mjs";
+import { newBoard } from "./board.mjs";
 import { CONFIG, IN_PROJECT, expand, readIndex, writeIndex, readSettings, writeSettings } from "./resolve.mjs";
 
 export const STORES = ["project", "memory", "path"];
+export const BOARDS = ["mcp", "file", "none"];
 export const slugify = (s) => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 
 export const dayZeroText = (today, events, items) =>
@@ -19,7 +21,7 @@ what was left half done and why, and what is verified. State is computed from it
 |---|---|---|
 | \`events.jsonl\` | The book: one event per line | Only by appending, through \`askflow log\` |
 | \`${CONFIG}\` | Everything specific to this project | By hand |
-| \`board-*.tsv\` | Board snapshot (code, state, created, closed, type, title, …) | Replaced by a newer one |
+| \`board-*.tsv\` | Board snapshot, only when the board is a tool (code, state, created, closed, type, title, …) | Replaced by a newer one |
 | \`views/\` | Computed views | Never by hand |
 | \`evidence/\` | Screenshots and recordings from verification | Added to |
 
@@ -28,7 +30,7 @@ askflow validate            # checks the book
 askflow views               # regenerates views/
 askflow show A-0001         # full history of one item
 askflow log '<json>'        # the only way to write
-askflow reconcile           # ledger vs. the latest board snapshot
+askflow reconcile           # ledger vs. the board (the Markdown board, or the latest snapshot of the tool)
 askflow config              # where this ledger is and how the project is configured
 \`\`\`
 
@@ -67,9 +69,11 @@ export const ledgerPath = ({ root, store, path, memoryRepo, slug, name }) => {
   throw new Error(`Unknown store «${store}» (one of: ${STORES.join(", ")}).`);
 };
 
-export const init = ({ root, name, store = "project", path, memoryRepo, slug, gitignore = false, history = false, home, today }) => {
+export const init = ({ root, name, store = "project", path, memoryRepo, slug, gitignore = false, history = false, board, home, today }) => {
   root = resolve(expand(root));
   if (!existsSync(root)) throw new Error(`Project folder not found: ${root}`);
+  const boardMode = board?.mode || "none";
+  if (!BOARDS.includes(boardMode)) throw new Error(`Unknown board «${boardMode}» (one of: ${BOARDS.join(", ")}).`);
   name = name || basename(root);
   const settings = readSettings(home);
   if (store === "memory") memoryRepo = memoryRepo || settings.memoryRepo;
@@ -79,7 +83,14 @@ export const init = ({ root, name, store = "project", path, memoryRepo, slug, gi
   if (index[root] && existsSync(join(index[root], CONFIG))) throw new Error(`This project already has a ledger at ${index[root]}. Nothing was changed.`);
 
   mkdirSync(join(ledger, "views"), { recursive: true });
-  writeFileSync(join(ledger, CONFIG), JSON.stringify(template({ name, root }), null, 2) + "\n");
+  const config = template({ name, root, board: { ...board, mode: boardMode } });
+  writeFileSync(join(ledger, CONFIG), JSON.stringify(config, null, 2) + "\n");
+  // The Markdown board lives in the project, wherever the ledger is. An existing file is never overwritten.
+  let boardFile = null, boardCreated = false;
+  if (boardMode === "file") {
+    boardFile = resolve(root, config.board.file);
+    if (!existsSync(boardFile)) { mkdirSync(dirname(boardFile), { recursive: true }); writeFileSync(boardFile, newBoard(name, config.board)); boardCreated = true; }
+  }
   if (!existsSync(join(ledger, "events.jsonl"))) writeFileSync(join(ledger, "events.jsonl"), "");
   writeFileSync(join(ledger, "README.md"), readme(name, history));
   if (history) mkdirSync(join(ledger, "load"), { recursive: true });
@@ -95,5 +106,5 @@ export const init = ({ root, name, store = "project", path, memoryRepo, slug, gi
     writeIndex(home, { ...index, [root]: ledger });
     if (store === "memory") writeSettings(home, { ...settings, memoryRepo: resolve(expand(memoryRepo)) });
   }
-  return { ledger, root, name, store, dayZero: !history };
+  return { ledger, root, name, store, dayZero: !history, board: config.board, boardFile, boardCreated };
 };

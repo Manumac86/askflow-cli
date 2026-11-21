@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { normalize, checkConfig, template } from "../src/config.mjs";
 import { resolveLedger } from "../src/resolve.mjs";
 import { init } from "../src/init.mjs";
-import { install } from "../src/install.mjs";
+import { install, parseAgents, guide, AGENTS } from "../src/install.mjs";
 
 const BIN = fileURLToPath(new URL("../bin/askflow.mjs", import.meta.url));
 const tmp = () => realpathSync(mkdtempSync(join(tmpdir(), "askflow-")));
@@ -173,4 +173,79 @@ test("install copies the skill and the agents and keeps a backup of what it repl
   const again = install({ claudeHome: w.claude, today: "2026-11-22" });
   assert.equal(again.backups.length, 1);
   assert.equal(readFileSync(again.backups[0], "utf8"), "mine");
+});
+
+test("parseAgents accepts numbers, names and «all», drops repeats and rejects what it does not know", () => {
+  const names = Object.keys(AGENTS);
+  assert.deepEqual(names, ["claude", "codex", "cursor", "gemini", "generic"]);
+  assert.deepEqual(parseAgents("1, 3"), ["claude", "cursor"]);
+  assert.deepEqual(parseAgents("codex cursor,codex"), ["codex", "cursor"]);
+  assert.deepEqual(parseAgents("ALL"), names);
+  assert.deepEqual(parseAgents("", ["gemini"]), ["gemini"]);
+  assert.throws(() => parseAgents("copilot"), /Unknown agent «copilot»/);
+  assert.throws(() => parseAgents("9"), /Unknown agent «9»/);
+});
+
+test("guide prints the workflow and each role without front matter, and says how to run a role without subagents", () => {
+  const flow = guide();
+  assert.ok(!flow.startsWith("---"));
+  assert.match(flow, /## Gate 1 — Entry/);
+  assert.match(flow, /askflow guide pr-reviewer/);
+  assert.match(flow, /fresh session/);
+  const role = guide("pr-reviewer");
+  assert.ok(!/^tools:/m.test(role));
+  assert.match(role, /reviewing a PR you did not write/);
+  assert.throws(() => guide("nobody"), /Unknown guide «nobody»/);
+});
+
+test("install for other agents writes a marked section in the project and leaves the rest of the file alone", () => {
+  const w = world();
+  writeFileSync(join(w.root, "AGENTS.md"), "# House rules\n\nUse tabs.\n");
+  const first = install({ agents: ["codex", "generic", "cursor", "gemini"], project: w.root, claudeHome: w.claude, today: "2026-11-22" });
+  assert.deepEqual(first.written.sort(), [join(w.root, ".cursor", "rules", "askflow.mdc"), join(w.root, "AGENTS.md"), join(w.root, "GEMINI.md")].sort());
+  assert.deepEqual(first.backups, []);
+  assert.ok(!existsSync(join(w.claude, "skills")));
+  const agentsMd = readFileSync(join(w.root, "AGENTS.md"), "utf8");
+  assert.ok(agentsMd.startsWith("# House rules\n\nUse tabs.\n"));
+  assert.match(agentsMd, /<!-- askflow:start[^\n]*-->[\s\S]*askflow guide[\s\S]*<!-- askflow:end -->/);
+  assert.match(readFileSync(join(w.root, ".cursor", "rules", "askflow.mdc"), "utf8"), /^---\n[\s\S]*alwaysApply: true\n---\n/);
+  assert.match(readFileSync(join(w.root, "GEMINI.md"), "utf8"), /askflow guide/);
+  assert.deepEqual(install({ agents: ["codex", "cursor", "gemini"], project: w.root, claudeHome: w.claude, today: "2026-11-22" }).written, []);
+  // A stale section is replaced in place; what the user wrote around it stays.
+  writeFileSync(join(w.root, "AGENTS.md"), agentsMd.replace(/(<!-- askflow:start[^\n]*-->)[\s\S]*(<!-- askflow:end -->)/, "$1\nold text\n$2") + "\n## After\n");
+  const again = install({ agents: ["codex"], project: w.root, claudeHome: w.claude, today: "2026-11-22" });
+  assert.deepEqual(again.written, [join(w.root, "AGENTS.md")]);
+  const updated = readFileSync(join(w.root, "AGENTS.md"), "utf8");
+  assert.ok(!updated.includes("old text"));
+  assert.ok(updated.startsWith("# House rules") && updated.endsWith("## After\n"));
+  assert.equal(updated.match(/askflow:start/g).length, 1);
+});
+
+test("install: dry run writes nothing, and a project agent needs a project", () => {
+  const w = world();
+  const r = install({ agents: ["claude", "gemini"], project: w.root, claudeHome: w.claude, today: "2026-11-22", dryRun: true });
+  assert.ok(r.written.includes(join(w.root, "GEMINI.md")) && r.written.length >= 5);
+  assert.ok(!existsSync(join(w.root, "GEMINI.md")) && !existsSync(join(w.claude, "skills")));
+  assert.throws(() => install({ agents: ["cursor"], claudeHome: w.claude, today: "2026-11-22" }), /project/);
+});
+
+test("cli: guide, install --agent and init --agent", () => {
+  const w = world();
+  assert.match(run(w, w.root, "guide").stdout, /## Gate 5 — Close/);
+  assert.match(run(w, w.root, "guide", "verifier").stdout, /live system/);
+  assert.equal(run(w, w.root, "guide", "nobody").status, 1);
+  const bad = run(w, w.root, "install", "--agent", "copilot");
+  assert.equal(bad.status, 1);
+  assert.match(bad.stderr, /Unknown agent «copilot»/);
+  const other = join(w.home, "elsewhere"); mkdirSync(other);
+  assert.match(run(w, w.root, "install", "--agent", "codex,claude", "--project", other).stdout, /written/);
+  assert.ok(existsSync(join(other, "AGENTS.md")) && existsSync(join(w.claude, "skills", "askflow", "SKILL.md")));
+  // With no terminal and no --agent, install keeps doing what it always did: Claude Code only.
+  const w2 = world();
+  run(w2, w2.root, "install");
+  assert.ok(existsSync(join(w2.claude, "agents", "askflow-verifier.md")) && !existsSync(join(w2.root, "AGENTS.md")));
+  const init2 = run(w2, w2.root, "init", "--yes", "--name", "Demo", "--agent", "cursor");
+  assert.equal(init2.status, 0);
+  assert.ok(existsSync(join(w2.root, ".cursor", "rules", "askflow.mdc")));
+  assert.ok(existsSync(join(w2.root, ".askflow", "events.jsonl")));
 });
