@@ -33,5 +33,10 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Manumac86/askflow-cli.git"
-  }
+  },
+  "homepage": "https://github.com/Manumac86/askflow-cli#readme",
+  "bugs": {
+    "url": "https://github.com/Manumac86/askflow-cli/issues"
+  },
+  "author": "Manu Martinez"
 }

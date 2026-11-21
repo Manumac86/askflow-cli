@@ -18,9 +18,11 @@ Zero dependencies. Node 20 or later.
 ## Install
 
 ```
-git clone https://github.com/Manumac86/askflow-cli.git && cd askflow-cli && npm link     # puts `askflow` on your PATH
-askflow install                                      # sets the workflow up for your coding agents
+npm install -g askflow       # puts `askflow` on your PATH
+askflow install              # sets the workflow up for your coding agents
 ```
+
+To work on askflow itself: `git clone https://github.com/Manumac86/askflow-cli.git && cd askflow-cli && npm link`.
 
 `askflow install` asks which agents you work with (pick one or several) and sets each one up:
 
@@ -379,14 +381,42 @@ What changes for other kinds of project:
 - **No board at all, or no spec tool**: set `board.enabled` or `spec.enabled` to `false`. The matching steps
   are skipped and their gaps are not reported.
 
-## Develop
+## Contributing
+
+Issues and pull requests are welcome at [github.com/Manumac86/askflow-cli](https://github.com/Manumac86/askflow-cli).
+For anything larger than a fix, open an issue first so the approach can be agreed before you write it.
 
 ```
+git clone https://github.com/Manumac86/askflow-cli.git && cd askflow-cli
+npm link      # run your working copy as `askflow`
 npm test
 ```
 
-`src/engine.mjs` is pure (no file access) and knows nothing about any project; `bin/askflow.mjs` is the
-only place that reads and writes.
+How the code is laid out: `src/engine.mjs` (the ledger) and `src/board.mjs` (the Markdown board) are pure —
+text in, text out, no file access — and know nothing about any project. `src/config.mjs` holds the
+defaults of the per-project configuration. `src/init.mjs`, `src/install.mjs` and `src/resolve.mjs` set
+projects and agents up and find the ledger. `bin/askflow.mjs` is the command line that ties them together.
+
+What a change needs to be merged:
+
+- **A test that failed before it.** Engine and board logic are tested as pure functions
+  (`test/engine.test.mjs`, `test/board.test.mjs`); commands are tested by running the CLI in a temporary
+  folder (`test/cli.test.mjs`). Tests never touch your real `~/.claude` or `~/.config/askflow`.
+- **No dependencies.** The tool runs on Node's standard library alone, and it should stay that way.
+- **Nothing project-specific in the tool.** If a behaviour depends on the project — a client, a board, a
+  rule — it is a field in `askflow.config.json` with a default, not a constant in the code.
+- **Old ledgers keep working.** `events.jsonl` is append-only and may be years old: an existing event type
+  or field never changes meaning, and a new configuration field always has a default.
+- **Nothing is deleted.** A command that replaces a file the user may have edited keeps the previous
+  version or touches only its own marked section.
+- **The skill and the docs move with the code.** If a command or a configuration field changes, update
+  `skills/askflow/SKILL.md`, the agents that read it and this README in the same pull request.
+
+Support for another coding agent is a small change: one entry in `AGENTS` in `src/install.mjs` saying which
+file that agent reads, and a test.
+
+Everything in the repository is in English. By contributing you agree that your work is released under
+the MIT license.
 
 ## License
 
