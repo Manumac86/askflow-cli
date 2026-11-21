@@ -1,0 +1,37 @@
+{
+  "name": "askflow",
+  "version": "0.1.0",
+  "description": "An append-only ledger of what was asked, plus a five-gate workflow that takes every ask from request to verified.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "askflow": "bin/askflow.mjs"
+  },
+  "files": [
+    "bin",
+    "src",
+    "skills",
+    "agents",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "workflow",
+    "ledger",
+    "event-log",
+    "ai-agents",
+    "claude-code",
+    "tdd",
+    "spec-driven"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Manumac86/askflow-cli.git"
+  }
+}
